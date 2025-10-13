@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0ea5e9">
+
+  <!-- iOS (no beforeinstallprompt) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <title>Sheets → WhatsApp (PWA)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+    h1 { font-size: 1.25rem; margin: 0; }
+    .bar { display:flex; gap:.5rem; align-items:center; }
+    .pill { padding: .2rem .6rem; border:1px solid #9ca3af; border-radius: 999px; font-size: .85rem; }
+    .ok { color: #16a34a; border-color:#16a34a; }
+    .bad { color: #ef4444; border-color:#ef4444; }
+    label { font-weight: 600; display:block; margin: .75rem 0 .25rem; }
+    select, input[type=text], input[type=password], input[type=time], textarea {
+      width: 100%; padding: .6rem .7rem; border-radius: .5rem; border: 1px solid #9ca3af; background: transparent;
+    }
+    textarea { height: 120px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    button { padding: .7rem 1rem; border-radius: .6rem; border: 1px solid #111827; background: transparent; cursor: pointer; }
+    button.primary { background: #111827; color: white; }
+    .muted { color: #6b7280; font-size: .9rem; }
+    .stack { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    footer { margin-top: 2rem; color:#6b7280; font-size:.9rem; }
+    .card { border:1px solid #e5e7eb; border-radius: .8rem; padding: 1rem; }
+    .hide { display:none; }
+
+    select option { background: #ffffff; color: #111111; }
+    @media (prefers-color-scheme: dark) {
+      select { color: #e5e7eb; }
+      select option { background: #111827; color: #e5e7eb; }
+    }
+    select:invalid { color: #9ca3af; }
+    .km-badge { font-variant-numeric: tabular-nums; padding:.25rem .5rem; border:1px dashed #9ca3af; border-radius:.5rem; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Sheets → WhatsApp (PWA-JP)</h1>
+  <div class="bar">
+    <span id="status" class="pill">offline</span>
+    <button id="btn-install" style="display:none">Instalar</button>
+  </div>
+</header>
+
+<!-- LOGIN -->
+<section id="view-login" class="card">
+  <h2>Inicia sesión</h2>
+
+  <label>GAS_URL (Apps Script Web App)</label>
+  <input id="cfg-url" type="text" placeholder="https://script.google.com/macros/s/.../exec" />
+
+  <label>Usuario (user_id)</label>
+  <input id="login-user" type="text" />
+
+  <label>PIN</label>
+  <input id="login-pin" type="password" />
+
+  <div class="stack">
+    <button id="btn-login">Entrar</button>
+    <button id="cfg-save">Guardar GAS_URL</button>
+  </div>
+
+  <!-- 🔽 Este es el elemento que faltaba -->
+  <div id="login-msg" class="muted" style="margin-top:8px; color:#ff8080;"></div>
+
+  <p class="muted">El usuario debe existir en la pestaña USERS.</p>
+</section>
+
+
+<!-- APP -->
+<section id="view-app" class="hide">
+  <section class="card">
+    <div class="stack" style="justify-content:space-between">
+      <div>
+        <strong id="txt-user"></strong>
+        <span id="txt-estado" class="pill" style="margin-left:.5rem">-</span>
+      </div>
+      <div class="stack">
+        <label class="stack" style="gap:.5rem">
+          <input type="checkbox" id="chk-salida" />
+          Estoy de salida (no recibir recordatorios)
+        </label>
+        <label class="stack" style="gap:.5rem">
+          Hora recordatorio:
+          <input id="time-rem" type="time" />
+        </label>
+        <button id="btn-save-rem">Guardar preferencias</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:1rem">
+    <h3 style="margin-top:0">Datos</h3>
+
+    <div class="row">
+      <div>
+        <label>Zona</label>
+        <select id="zona" required></select>
+      </div>
+      <div>
+        <label>Contrato</label>
+        <select id="contrato" required></select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Ruta</label>
+        <select id="ruta" required></select>
+      </div>
+      <div>
+        <label>Sección de control</label>
+        <select id="seccion" required></select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Item (escribe para buscar)</label>
+        <input id="item" list="item-list" placeholder="código o nombre..." autocomplete="off" />
+        <datalist id="item-list"></datalist>
+        <small class="muted">Si no existe, quedará como texto libre.</small>
+      </div>
+      <div>
+        <label>Mensaje</label>
+        <textarea id="mensaje" placeholder="[Zona] [Contrato] [Ruta] [Sección] [Item] — escribe tu mensaje..."></textarea>
+      </div>
+    </div>
+
+    <div class="stack" style="margin-top:1rem">
+      <button id="btn-preview">Previsualizar</button>
+      <button id="btn-wa" class="primary">Abrir WhatsApp</button>
+      <button id="btn-guardar">Guardar en Sheets</button>
+    </div>
+
+    <div id="debug" class="muted" style="margin-top:.75rem"></div>
+  </section>
+  <section class="card" style="margin-top:1rem">
+  <div class="stack" style="justify-content:space-between">
+    <h3 style="margin:0">Historial</h3>
+    <div class="stack">
+      <button id="btn-reload-logs">Actualizar</button>
+      <button id="btn-logout">Cerrar sesión</button>
+    </div>
+  </div>
+  <div id="logs" class="muted" style="margin-top:.75rem">Sin datos</div>
+</section>
+
+</section>
+
+<footer>
+  Login + Recordatorios locales listos. Luego podemos activar Web Push (FCM).
+</footer>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
