@@ -1,5 +1,16 @@
 // Cambia versión para forzar actualización
-const CACHE = "sheets-wa-pwa-v25";
+const CACHE = "sheets-wa-pwa-v26";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./app.js",
+  "./data.js",
+  "./manifest.webmanifest",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+];
+
+/*const CACHE = "sheets-wa-pwa-v25";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,5 +45,4 @@ self.addEventListener("fetch", (e) => {
       })
     )
   );
-});
-
+});*/

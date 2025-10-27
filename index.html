@@ -163,9 +163,17 @@
 
 <footer>
   📍 Geolocalización activa - Los mensajes incluyen coordenadas GPS
+  <br>
+  <small id="fcm-status" class="muted">🔔 Notificaciones: Cargando...</small>
 </footer>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
+
+<!-- Scripts de la app -->
 <script src="data.js"></script>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

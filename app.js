@@ -145,10 +145,35 @@ window.addEventListener("appinstalled", () => {
 
 // ================== Online/Offline ==================
 function setOnline(v){
+  const wasOffline = !state.online;
   state.online = v;
   statusPill.textContent = v ? "online" : "offline";
   statusPill.className = "pill " + (v ? "ok" : "bad");
-  if (v) trySync();
+  
+  if (v) {
+    trySync();
+    
+    // Notifica cuando vuelve internet
+    if (wasOffline && state.auth) {
+      const pendientes = state.outbox.length;
+      if (pendientes > 0) {
+        sendNotification(
+          "✅ Conexión restaurada", 
+          `Sincronizando ${pendientes} mensaje${pendientes > 1 ? 's' : ''} pendiente${pendientes > 1 ? 's' : ''}...`,
+          { tag: 'connection-restored' }
+        );
+      }
+    }
+  } else {
+    // Notifica cuando se pierde internet
+    if (state.auth) {
+      sendNotification(
+        "⚠️ Sin conexión",
+        "Tus mensajes se guardarán localmente y se sincronizarán cuando vuelva el internet.",
+        { tag: 'connection-lost', requireInteraction: false }
+      );
+    }
+  }
 }
 window.addEventListener("online",  () => setOnline(true));
 window.addEventListener("offline", () => setOnline(false));
@@ -350,7 +375,8 @@ btnLogin?.addEventListener("click", async ()=>{
     await initCatalogs();
     hydrateProfileUI();
     scheduleLocalReminder();
-    await requestGPSPermission(); // << Solicita GPS al login
+    await requestGPSPermission();
+    await initializeFCM(); // << Inicializa Firebase Cloud Messaging
     await loadLogs(50);
     showApp();
   } catch (e) {
@@ -813,7 +839,12 @@ function scheduleLocalReminder(){
   const salida = state.auth.estado === "salida";
   if (!hhmm || salida) return;
 
-  if (Notification && Notification.permission === "default") Notification.requestPermission();
+  // Solicita permisos de notificación si no los tiene
+  if (Notification && Notification.permission === "default") {
+    Notification.requestPermission().then(permission => {
+      console.log("🔔 Permiso de notificaciones:", permission);
+    });
+  }
 
   state.reminderTimer = setInterval(() => {
     const now = new Date();
@@ -822,11 +853,58 @@ function scheduleLocalReminder(){
     if (`${h}:${m}` === hhmm) {
       if (window.__lastReminderStamp === `${h}:${m}`) return;
       window.__lastReminderStamp = `${h}:${m}`;
-      const body = `Hola ${state.auth.nombre}, este es tu recordatorio diario.\n(Se desactiva si marcas "Estoy de salida".)`;
-      if (Notification && Notification.permission === "granted") new Notification("Recordatorio", { body });
-      else alert(body);
+      
+      const title = "📍 Recordatorio CACISA";
+      const body = `Hola ${state.auth.nombre}, es hora de tu registro diario.`;
+      
+      sendNotification(title, body, {
+        icon: './icons/icon-192.png',
+        badge: './icons/icon-192.png',
+        tag: 'reminder-daily',
+        requireInteraction: false,
+        actions: [
+          { action: 'open', title: '✅ Abrir App' }
+        ]
+      });
     }
   }, 15 * 1000);
+}
+
+// Función universal para enviar notificaciones
+function sendNotification(title, body, options = {}) {
+  const defaultOptions = {
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    vibrate: [200, 100, 200],
+    timestamp: Date.now(),
+    ...options
+  };
+
+  // Si la app está en segundo plano o cerrada, usa Service Worker
+  if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification(title, {
+        body,
+        ...defaultOptions
+      });
+    });
+  } 
+  // Si la app está abierta, notificación regular
+  else if (Notification && Notification.permission === "granted") {
+    const notification = new Notification(title, {
+      body,
+      ...defaultOptions
+    });
+    
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  } 
+  // Fallback a alert si no hay permisos
+  else {
+    alert(`${title}\n\n${body}`);
+  }
 }
 
 // ================== Historial ==================
