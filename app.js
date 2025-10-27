@@ -198,6 +198,12 @@ loadCfg(); loadAuth(); loadOutbox();
 
 btnCfgSave?.addEventListener("click", () => { saveCfg(); toastMsg(loginMsg, "GAS_URL guardada ✅"); });
 
+// Hacer visibles para firebase-config.js
+window.state = state;
+window.buildUrl = buildUrl;
+window.saveAuth = saveAuth;
+
+
 // ================== GEOLOCALIZACIÓN ==================
 function updateGPSStatus(status, coords = null) {
   if (!gpsStatus) return;
@@ -972,6 +978,35 @@ btnLogout?.addEventListener("click", ()=>{
   state.auth = null;
   showLogin();
 });
+
+async function initializeFCM() {
+  const fcmLabel = document.querySelector('#fcm-status');
+  try {
+    // 1) Inicializa Firebase (usa firebase-config.js)
+    const ok = await window.firebaseApp.initialize();
+    if (!ok) {
+      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: no disponibles';
+      return;
+    }
+
+    // 2) Pide token
+    const token = await window.firebaseApp.requestToken();
+    if (token) {
+      // 3) Guarda el token en Google Sheets (USERS.device_token)
+      await window.firebaseApp.updateToken(token);
+      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: activas';
+    } else {
+      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: permiso denegado';
+    }
+
+    // 4) Listener de mensajes en primer plano
+    window.firebaseApp.setupListeners();
+  } catch (err) {
+    console.error('FCM init error:', err);
+    if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: error';
+  }
+}
+
 
 // ================== Service Worker ==================
 if ("serviceWorker" in navigator){
