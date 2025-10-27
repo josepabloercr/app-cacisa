@@ -1,0 +1,9 @@
+{
+  "name": "app-cacisa",
+  "private": true,
+  "version": "1.0.0",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "firebase-admin": "^12.5.0"
+  }
+}

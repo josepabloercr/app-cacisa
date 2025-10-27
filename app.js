@@ -1,5 +1,5 @@
 // ===== Sheets → WhatsApp (PWA) =====
-// app.js COMPLETO (móvil + PWA install + offline + logs)
+// app.js HÍBRIDO: Caché dinámico + fallback embebido
 
 // --- UUID compatible (polyfill) ---
 function uuid() {
@@ -9,8 +9,8 @@ function uuid() {
   const arr = (typeof crypto !== "undefined" && crypto.getRandomValues)
     ? crypto.getRandomValues(new Uint8Array(16))
     : Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
-  arr[6] = (arr[6] & 0x0f) | 0x40; // v4
-  arr[8] = (arr[8] & 0x3f) | 0x80; // variant
+  arr[6] = (arr[6] & 0x0f) | 0x40;
+  arr[8] = (arr[8] & 0x3f) | 0x80;
   const hex = [...arr].map(b => b.toString(16).padStart(2, "0"));
   return (
     hex.slice(0, 4).join("") + "-" +
@@ -21,7 +21,6 @@ function uuid() {
   );
 }
 
-// Utilidad para seleccionar
 const $ = (sel) => document.querySelector(sel);
 
 // ----- Vistas -----
@@ -30,7 +29,7 @@ const viewApp   = $("#view-app");
 
 // ----- Header / estado -----
 const statusPill = $("#status");
-const btnInstall = $("#btn-install"); // debe existir en HTML
+const btnInstall = $("#btn-install");
 
 // ----- Login -----
 const cfgInput   = $("#cfg-url");
@@ -56,6 +55,8 @@ const itemInput  = $("#item");
 const itemList   = $("#item-list");
 const mensaje    = $("#mensaje");
 const debug      = $("#debug");
+const gpsStatus  = $("#gps-status");
+const gpsCoords  = $("#gps-coords");
 
 // ----- Historial / logout -----
 const logsContainer  = $("#logs");
@@ -66,20 +67,23 @@ const btnLogout      = $("#btn-logout");
 const CFG_KEY    = "pwa_cfg";
 const AUTH_KEY   = "pwa_auth";
 const OUTBOX_KEY = "pwa_outbox";
+const CATS_KEY   = "pwa_catalog_cache";
 
 // ----- Estado -----
 const state = {
   online: navigator.onLine,
   cfg: { gasUrl: "" },
-  auth: null, // { user_id, nombre, estado, recibir_notif, reminder_hhmm }
+  auth: null,
   zonas: [], contratos: [], rutas: [], secciones: [], items: [],
   outbox: [],
   reminderTimer: null,
-  deferredPrompt: null
+  deferredPrompt: null,
+  _cats: {},
+  currentLocation: null,
+  gpsWatchId: null  // << ID del watcher de GPS continuo
 };
 
 // ================== Helpers ==================
-function placeholderOption(label){ return `<option value="" disabled selected hidden>${label}</option>`; }
 function showLogin(){ viewLogin.classList.remove("hide"); viewApp.classList.add("hide"); }
 function showApp(){ viewLogin.classList.add("hide"); viewApp.classList.remove("hide"); }
 function setEstadoPill(estado){
@@ -88,7 +92,6 @@ function setEstadoPill(estado){
 }
 function toastMsg(el, msg){ if (!el) { alert(msg); return; } el.textContent = msg; setTimeout(()=>{ el.textContent=""; }, 2000); }
 
-// Construye URL segura aun si la base ya trae ?param=...
 function buildUrl(base, params = {}) {
   const u = new URL(base);
   Object.entries(params).forEach(([k, v]) => {
@@ -97,13 +100,25 @@ function buildUrl(base, params = {}) {
   return u.toString();
 }
 
-// ================== Install PWA (robusto) ==================
+// ================== Caché dinámico ==================
+function saveCatalogCache(cache) { 
+  localStorage.setItem(CATS_KEY, JSON.stringify(cache || {})); 
+}
+
+function loadCatalogCache() {
+  try { 
+    return JSON.parse(localStorage.getItem(CATS_KEY) || "{}"); 
+  } catch { 
+    return {}; 
+  }
+}
+
+// ================== Install PWA ==================
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 function updateInstallButtonVisibility() {
   if (!btnInstall) return;
-  // iOS no soporta beforeinstallprompt; muestra botón solo en navegadores compatibles
   const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   if (isiOS) { btnInstall.style.display = "none"; return; }
   btnInstall.style.display = (!isStandalone() && state.deferredPrompt) ? "inline-block" : "none";
@@ -118,7 +133,7 @@ if (btnInstall) {
   btnInstall.addEventListener("click", async () => {
     if (!state.deferredPrompt) return;
     state.deferredPrompt.prompt();
-    await state.deferredPrompt.userChoice; // { outcome: "accepted" | "dismissed" }
+    await state.deferredPrompt.userChoice;
     state.deferredPrompt = null;
     updateInstallButtonVisibility();
   });
@@ -126,7 +141,6 @@ if (btnInstall) {
 window.addEventListener("appinstalled", () => {
   state.deferredPrompt = null;
   updateInstallButtonVisibility();
-  try { console.log("PWA instalada"); } catch {}
 });
 
 // ================== Online/Offline ==================
@@ -155,11 +169,93 @@ function saveAuth(){ localStorage.setItem(AUTH_KEY, JSON.stringify(state.auth));
 function loadOutbox(){ try { state.outbox = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); } catch { state.outbox = []; } }
 function saveOutbox(){ localStorage.setItem(OUTBOX_KEY, JSON.stringify(state.outbox)); }
 
-// Init storage
 loadCfg(); loadAuth(); loadOutbox();
 
-// Botón “Guardar GAS_URL”
 btnCfgSave?.addEventListener("click", () => { saveCfg(); toastMsg(loginMsg, "GAS_URL guardada ✅"); });
+
+// ================== GEOLOCALIZACIÓN ==================
+function updateGPSStatus(status, coords = null) {
+  if (!gpsStatus) return;
+  
+  if (status === "getting") {
+    gpsStatus.textContent = "📍 Obteniendo ubicación...";
+    gpsStatus.className = "pill";
+  } else if (status === "success") {
+    gpsStatus.textContent = "📍 GPS obtenido";
+    gpsStatus.className = "pill ok";
+    if (coords && gpsCoords) {
+      gpsCoords.textContent = `Lat: ${coords.latitude.toFixed(6)}, Lon: ${coords.longitude.toFixed(6)}`;
+    }
+  } else if (status === "error") {
+    gpsStatus.textContent = "📍 GPS no disponible";
+    gpsStatus.className = "pill bad";
+    if (gpsCoords) gpsCoords.textContent = "";
+  } else {
+    gpsStatus.textContent = "📍 GPS desactivado";
+    gpsStatus.className = "pill";
+    if (gpsCoords) gpsCoords.textContent = "";
+  }
+}
+
+function requestLocation() {
+  if (!navigator.geolocation) {
+    console.warn("Geolocalización no soportada");
+    updateGPSStatus("error");
+    return Promise.reject(new Error("not_supported"));
+  }
+
+  updateGPSStatus("getting");
+
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coords = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          timestamp: position.timestamp
+        };
+        state.currentLocation = coords;
+        updateGPSStatus("success", coords);
+        console.log("📍 Coordenadas obtenidas:", coords);
+        resolve(coords);
+      },
+      (error) => {
+        console.error("Error GPS:", error.message);
+        updateGPSStatus("error");
+        state.currentLocation = null;
+        
+        let errorMsg = "Error obteniendo ubicación";
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMsg = "Permiso de ubicación denegado";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMsg = "Ubicación no disponible";
+            break;
+          case error.TIMEOUT:
+            errorMsg = "Tiempo agotado obteniendo ubicación";
+            break;
+        }
+        reject(new Error(errorMsg));
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000 // Acepta ubicación de hasta 1 minuto atrás
+      }
+    );
+  });
+}
+
+// Solicitar permisos al hacer login
+async function requestGPSPermission() {
+  try {
+    await requestLocation();
+  } catch (e) {
+    console.warn("No se pudo obtener ubicación inicial:", e.message);
+  }
+}
 
 // ================== LOGIN ==================
 btnLogin?.addEventListener("click", async ()=>{
@@ -181,6 +277,7 @@ btnLogin?.addEventListener("click", async ()=>{
     await initCatalogs();
     hydrateProfileUI();
     scheduleLocalReminder();
+    await requestGPSPermission(); // << Solicita GPS al login
     await loadLogs(50);
     showApp();
   } catch (e) {
@@ -210,7 +307,6 @@ btnSaveRem?.addEventListener("click", async ()=>{
     recibir_notif: true
   };
 
-  // 1) Intento por POST
   try {
     const r = await fetch(state.cfg.gasUrl, {
       method:"POST", headers:{ "Content-Type":"application/json" },
@@ -226,7 +322,6 @@ btnSaveRem?.addEventListener("click", async ()=>{
     return;
   } catch (e) { console.warn("POST update_user falló, probando GET:", e); }
 
-  // 2) Fallback por GET
   try {
     const u = buildUrl(state.cfg.gasUrl, {
       q: "update_user",
@@ -250,87 +345,199 @@ btnSaveRem?.addEventListener("click", async ()=>{
   }
 });
 
-// ================== Carga de catálogos ==================
+// ================== Carga de catálogos HÍBRIDA ==================
 async function initCatalogs(){
-  try{
-    const r = await fetch(buildUrl(state.cfg.gasUrl, { q: "catalogos" }));
-    const data = await r.json();
-    state.zonas = data.zonas || [];
-    state.contratos = data.contratos || [];
-  }catch(err){
-    state.zonas = (typeof LOCAL_ZONAS !== "undefined") ? LOCAL_ZONAS.slice() : [];
-    state.contratos = (typeof LOCAL_CONTRATOS !== "undefined") ? LOCAL_CONTRATOS.slice() : [];
+  let cache = loadCatalogCache();
+  
+  // Si hay conexión, intenta refrescar desde GAS
+  if (state.online && state.cfg.gasUrl) {
+    try{
+      const r = await fetch(buildUrl(state.cfg.gasUrl, { q: "catalogos" }), { cache: "no-store" });
+      const data = await r.json();
+      state.zonas = data.zonas || [];
+      state.contratos = data.contratos || [];
+      
+      // Actualiza caché manteniendo datos previos de rutas/secciones/items
+      cache = {
+        zonas: state.zonas,
+        contratos: state.contratos,
+        rutasByZona: cache.rutasByZona || {},
+        seccionesByZR: cache.seccionesByZR || {},
+        itemsByKey: cache.itemsByKey || {}
+      };
+      saveCatalogCache(cache);
+      console.log("✅ Catálogos actualizados desde Sheets");
+    }catch(err){
+      console.warn("⚠️ Error cargando desde Sheets, usando caché/fallback:", err);
+      // Si falla online, usar caché si existe
+      if (cache.zonas && cache.zonas.length) {
+        state.zonas = cache.zonas;
+        state.contratos = cache.contratos || [];
+      } else {
+        // Último fallback: datos embebidos
+        state.zonas = (typeof LOCAL_ZONAS !== "undefined") ? LOCAL_ZONAS.slice() : [];
+        state.contratos = (typeof LOCAL_CONTRATOS !== "undefined") ? LOCAL_CONTRATOS.slice() : [];
+        console.log("📦 Usando datos embebidos como fallback");
+      }
+    }
+  } else {
+    // Offline: usar caché primero, luego fallback embebido
+    if (cache.zonas && cache.zonas.length) {
+      state.zonas = cache.zonas;
+      state.contratos = cache.contratos || [];
+      console.log("💾 Usando caché offline");
+    } else {
+      state.zonas = (typeof LOCAL_ZONAS !== "undefined") ? LOCAL_ZONAS.slice() : [];
+      state.contratos = (typeof LOCAL_CONTRATOS !== "undefined") ? LOCAL_CONTRATOS.slice() : [];
+      console.log("📦 Usando datos embebidos (sin caché previo)");
+    }
   }
+
+  state._cats = loadCatalogCache();
   fillZonas();
+  
+  // Aviso UX si no hay datos
+  if (!state.zonas.length) {
+    alert("⚠️ Estás sin conexión y no hay datos locales. Conéctate una vez para cargar catálogos.");
+  }
+  
   await onZonaChange();
 }
 
 function fillZonas(){
-  zona.innerHTML = placeholderOption("Selecciona una zona") +
+  zona.innerHTML = `<option value="">Selecciona una zona</option>` +
     state.zonas.map(z => `<option value="${z.zona_id}">${z.zona_nombre || z.zona_id}</option>`).join("");
   zona.value = "";
 }
+
 function fillContratos(){
   const z = zona.value;
   const filtrados = state.contratos.filter(c => (c.zona_id === z || c.zona_id === "ambas"));
-  contrato.innerHTML = placeholderOption("Selecciona un contrato") +
+  contrato.innerHTML = `<option value="">Selecciona un contrato</option>` +
     filtrados.map(c => `<option value="${c.contrato_id}">${c.contrato_id}</option>`).join("");
   contrato.value = "";
 }
+
 function fillRutas(){
-  ruta.innerHTML = placeholderOption("Selecciona una ruta") +
+  ruta.innerHTML = `<option value="">Selecciona una ruta</option>` +
     state.rutas.map(r => `<option value="${r.ruta_codigo}">${r.ruta_nombre || r.ruta_codigo}</option>`).join("");
   ruta.value = "";
 }
+
 function fillSecciones(){
-  seccion.innerHTML = placeholderOption("Selecciona una sección") +
+  seccion.innerHTML = `<option value="">Selecciona una sección</option>` +
     state.secciones.map(s => `<option value="${s.seccion_control}">${s.seccion_control}</option>`).join("");
   seccion.value = "";
 }
 
+// ========== FETCH con caché + fallback embebido ==========
 async function fetchRutas(z){
-  try{
-    const r = await fetch(buildUrl(state.cfg.gasUrl, { q:"rutas", zona: z }));
-    const data = await r.json();
-    state.rutas = data.rutas || [];
-  }catch(e){
-    state.rutas = (typeof LOCAL_RUTAS !== "undefined" ? (LOCAL_RUTAS[z] || []) : []);
+  const key = String(z || "");
+  
+  // Online primero
+  if (state.online && state.cfg.gasUrl) {
+    try{
+      const r = await fetch(buildUrl(state.cfg.gasUrl, { q:"rutas", zona: key }), { cache: "no-store" });
+      const data = await r.json();
+      state.rutas = data.rutas || [];
+      
+      // Guarda en caché
+      const cache = loadCatalogCache();
+      cache.rutasByZona = cache.rutasByZona || {};
+      cache.rutasByZona[key] = state.rutas;
+      saveCatalogCache(cache);
+      state._cats = cache;
+      return;
+    }catch(e){ console.warn("Error fetchRutas online:", e); }
+  }
+  
+  // Offline o fallo: usa caché
+  const cache = state._cats || loadCatalogCache();
+  if (cache.rutasByZona && cache.rutasByZona[key]) {
+    state.rutas = cache.rutasByZona[key];
+  } else {
+    // Fallback embebido
+    state.rutas = (typeof LOCAL_RUTAS !== "undefined" && LOCAL_RUTAS[key]) ? LOCAL_RUTAS[key] : [];
   }
 }
+
 async function fetchSecciones(z, rcode){
-  try{
-    const x = await fetch(buildUrl(state.cfg.gasUrl, { q:"secciones", zona: z, ruta: rcode }));
-    const data = await x.json();
-    state.secciones = data.secciones || [];
-  }catch(e){
-    const key = `${z}:${rcode}`;
-    state.secciones = (typeof LOCAL_SECCIONES !== "undefined" ? (LOCAL_SECCIONES[key] || []) : []);
+  const key = `${z||""}:${rcode||""}`;
+  
+  if (state.online && state.cfg.gasUrl) {
+    try{
+      const x = await fetch(buildUrl(state.cfg.gasUrl, { q:"secciones", zona: z, ruta: rcode }), { cache:"no-store" });
+      const data = await x.json();
+      state.secciones = data.secciones || [];
+      
+      const cache = loadCatalogCache();
+      cache.seccionesByZR = cache.seccionesByZR || {};
+      cache.seccionesByZR[key] = state.secciones;
+      saveCatalogCache(cache);
+      state._cats = cache;
+      return;
+    }catch(e){ console.warn("Error fetchSecciones online:", e); }
+  }
+  
+  // Offline o fallo
+  const cache = state._cats || loadCatalogCache();
+  if (cache.seccionesByZR && cache.seccionesByZR[key]) {
+    state.secciones = cache.seccionesByZR[key];
+  } else {
+    state.secciones = (typeof LOCAL_SECCIONES !== "undefined" && LOCAL_SECCIONES[key]) ? LOCAL_SECCIONES[key] : [];
   }
 }
+
 async function fetchItems(contratoId, search=""){
   const z = zona.value || "";
-  try{
-    const r = await fetch(buildUrl(state.cfg.gasUrl, { q:"items", contrato: contratoId, zona: z, search }));
-    const d = await r.json();
-    state.items = d.items || [];
-  }catch(e){
-    let list = [];
-    if (typeof LOCAL_ITEMS !== "undefined") {
-      list = (LOCAL_ITEMS[`${contratoId}::${z}`] || []).concat(LOCAL_ITEMS[`${contratoId}::ambas`] || []);
-      if (search){
-        const s = search.toLowerCase();
-        list = list.filter(x =>
-          String(x.item_codigo||"").toLowerCase().includes(s) ||
-          String(x.item_nombre||"").toLowerCase().includes(s)
-        );
-      }
-    }
-    state.items = list;
+  const itemsKey = `${contratoId}::${z}`;
+  
+  if (state.online && state.cfg.gasUrl) {
+    try{
+      const r = await fetch(buildUrl(state.cfg.gasUrl, { q:"items", contrato: contratoId, zona: z, search }), { cache:"no-store" });
+      const d = await r.json();
+      state.items = d.items || [];
+      
+      // Cachea resultado base (sin filtro)
+      const cache = loadCatalogCache();
+      cache.itemsByKey = cache.itemsByKey || {};
+      if (!search) cache.itemsByKey[itemsKey] = state.items;
+      saveCatalogCache(cache);
+      state._cats = cache;
+      
+      itemList.innerHTML = state.items.map(x => `<option value="${(x.item_codigo||"")+" - "+(x.item_nombre||"")}"></option>`).join("");
+      return;
+    }catch(e){ console.warn("Error fetchItems online:", e); }
   }
+  
+  // Offline o fallo: usa caché primero
+  const cache = state._cats || loadCatalogCache();
+  let list = [];
+  
+  if (cache.itemsByKey && cache.itemsByKey[itemsKey]) {
+    list = cache.itemsByKey[itemsKey].slice();
+  } else {
+    // Fallback embebido
+    const keyAmbas = `${contratoId}::ambas`;
+    if (typeof LOCAL_ITEMS !== "undefined") {
+      list = (LOCAL_ITEMS[itemsKey] || []).concat(LOCAL_ITEMS[keyAmbas] || []);
+    }
+  }
+  
+  // Filtrar si hay búsqueda
+  if (search) {
+    const s = search.toLowerCase();
+    list = list.filter(x =>
+      String(x.item_codigo||"").toLowerCase().includes(s) ||
+      String(x.item_nombre||"").toLowerCase().includes(s)
+    );
+  }
+  
+  state.items = list;
   itemList.innerHTML = state.items.map(x => `<option value="${(x.item_codigo||"")+" - "+(x.item_nombre||"")}"></option>`).join("");
 }
 
-// ---- Flujos de cambio (wrappers) ----
+// ========== Flujos de cambio ==========
 async function onZonaChange(){
   fillContratos();
   await fetchRutas(zona.value || "");
@@ -339,18 +546,20 @@ async function onZonaChange(){
   itemInput.value = ""; state.items = []; itemList.innerHTML = "";
   applyPreview(); showDebug();
 }
+
 async function onContratoChange(){
   itemInput.value = "";
   await fetchItems(contrato.value || "", "");
   applyPreview(); showDebug();
 }
+
 async function onRutaChange(){
   await fetchSecciones(zona.value || "", ruta.value || "");
   fillSecciones();
   applyPreview(); showDebug();
 }
 
-// ================== Eventos de selects/inputs ==================
+// ================== Eventos ==================
 zona?.addEventListener("change", onZonaChange);
 contrato?.addEventListener("change", onContratoChange);
 ruta?.addEventListener("change", onRutaChange);
@@ -371,7 +580,7 @@ function showDebug(){
 }
 
 // ================== Previsualización ==================
-const PREFIX_RE = /^(?:\[[^\]]+\]\s+){1,6}—\s*/; // 1..6 bloques
+const PREFIX_RE = /^(?:\[[^\]]+\]\s+){1,6}—\s*/;
 function currentPrefix() {
   const parts = [];
   if (zona.value)     parts.push(`[${zona.value}]`);
@@ -401,9 +610,16 @@ $("#btn-wa")?.addEventListener("click", ()=>{
 
 // ================== Guardado ==================
 $("#btn-guardar")?.addEventListener("click", async ()=>{
+  // Intenta obtener ubicación fresca antes de guardar
+  try {
+    await requestLocation();
+  } catch (e) {
+    console.warn("No se pudo actualizar ubicación:", e.message);
+  }
+
   let item_codigo = "", item_nombre = "";
   const raw = (itemInput.value || "").trim();
-  const m = raw.match(/^\s*([^-\[]+?)\s*-\s*(.+)\s*$/); // "codigo - nombre"
+  const m = raw.match(/^\s*([^-\[]+?)\s*-\s*(.+)\s*$/);
   if (m) { item_codigo = m[1].trim(); item_nombre = m[2].trim(); }
   else   { item_nombre = raw; }
 
@@ -414,12 +630,17 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     ruta_codigo: ruta.value || "",
     seccion_control: seccion.value || "",
     item_codigo, item_nombre,
-    kilometraje: "", // omitido por ahora
+    kilometraje: "",
     mensaje: mensaje.value || "",
     estado_sync: state.online ? "online" : "offline",
     timestamp: Date.now(),
     msg_id: uuid(),
-    usuario_id: state.auth?.user_id || ""
+    usuario_id: state.auth?.user_id || "",
+    // << NUEVOS CAMPOS DE GPS
+    latitud: state.currentLocation?.latitude || null,
+    longitud: state.currentLocation?.longitude || null,
+    gps_accuracy: state.currentLocation?.accuracy || null,
+    gps_timestamp: state.currentLocation?.timestamp || null
   };
 
   if (!state.cfg.gasUrl){
@@ -435,7 +656,7 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     alert("Guardado en Google Sheets ✅");
-    await loadLogs(50); // refresca historial
+    await loadLogs(50);
   }catch(e){
     try{
       const u2 = buildUrl(state.cfg.gasUrl, { action:"append_log", payload: JSON.stringify(payload) });
@@ -451,15 +672,40 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
 });
 
 function enqueue(item){ state.outbox.push({ id: uuid(), item, attempts: 0 }); saveOutbox(); }
+
 async function trySync(){
   if (!state.online || !state.outbox.length || !state.cfg.gasUrl) return;
   const next = state.outbox[0];
+  
+  console.log("🔄 Intentando sincronizar:", next.item.msg_id);
+  
+  // Usa GET directamente (evita problemas de CORS)
   try{
-    await fetch(state.cfg.gasUrl, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(next.item) });
-    state.outbox.shift(); saveOutbox();
+    const u = buildUrl(state.cfg.gasUrl, { 
+      action: "append_log", 
+      payload: JSON.stringify(next.item) 
+    });
+    
+    const res = await fetch(u, { method:"GET", cache:"no-store" });
+    
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "response_not_ok");
+    
+    // Éxito: elimina de cola
+    state.outbox.shift(); 
+    saveOutbox();
+    console.log("✅ Sincronizado desde cola:", next.item.msg_id);
+    
     if (state.outbox.length) setTimeout(trySync, 200);
   }catch(e){
-    next.attempts++; const delay = Math.min(30000, 1000 * Math.pow(2, next.attempts));
+    console.error("❌ Error sincronizando:", e.message);
+    // Incrementa intentos y reintenta más tarde
+    next.attempts++; 
+    const delay = Math.min(30000, 1000 * Math.pow(2, next.attempts));
+    console.log(`⏱️ Reintentando en ${delay/1000}s (intento ${next.attempts})`);
+    saveOutbox();
     setTimeout(trySync, delay);
   }
 }
@@ -571,6 +817,7 @@ window.addEventListener("load", updateInstallButtonVisibility);
     await initCatalogs();
     hydrateProfileUI();
     scheduleLocalReminder();
+    await requestGPSPermission(); // << Solicita GPS al cargar
     await loadLogs(50);
     showApp();
   } else {

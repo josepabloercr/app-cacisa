@@ -18,8 +18,8 @@
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
     header { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
     h1 { font-size: 1.25rem; margin: 0; }
-    .bar { display:flex; gap:.5rem; align-items:center; }
-    .pill { padding: .2rem .6rem; border:1px solid #9ca3af; border-radius: 999px; font-size: .85rem; }
+    .bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .pill { padding: .2rem .6rem; border:1px solid #9ca3af; border-radius: 999px; font-size: .85rem; white-space:nowrap; }
     .ok { color: #16a34a; border-color:#16a34a; }
     .bad { color: #ef4444; border-color:#ef4444; }
     label { font-weight: 600; display:block; margin: .75rem 0 .25rem; }
@@ -42,7 +42,6 @@
       select option { background: #111827; color: #e5e7eb; }
     }
     select:invalid { color: #9ca3af; }
-    .km-badge { font-variant-numeric: tabular-nums; padding:.25rem .5rem; border:1px dashed #9ca3af; border-radius:.5rem; }
   </style>
 </head>
 <body>
@@ -50,6 +49,7 @@
   <h1>Sheets → WhatsApp (PWA-JP)</h1>
   <div class="bar">
     <span id="status" class="pill">offline</span>
+    <span id="gps-status" class="pill">📍 GPS</span>
     <button id="btn-install" style="display:none">Instalar</button>
   </div>
 </header>
@@ -72,7 +72,6 @@
     <button id="cfg-save">Guardar GAS_URL</button>
   </div>
 
-  <!-- 🔽 Este es el elemento que faltaba -->
   <div id="login-msg" class="muted" style="margin-top:8px; color:#ff8080;"></div>
 
   <p class="muted">El usuario debe existir en la pestaña USERS.</p>
@@ -99,6 +98,7 @@
         <button id="btn-save-rem">Guardar preferencias</button>
       </div>
     </div>
+    <div id="gps-coords" class="muted" style="margin-top:.5rem"></div>
   </section>
 
   <section class="card" style="margin-top:1rem">
@@ -107,22 +107,22 @@
     <div class="row">
       <div>
         <label>Zona</label>
-        <select id="zona" required></select>
+        <select id="zona"></select>
       </div>
       <div>
         <label>Contrato</label>
-        <select id="contrato" required></select>
+        <select id="contrato"></select>
       </div>
     </div>
 
     <div class="row">
       <div>
         <label>Ruta</label>
-        <select id="ruta" required></select>
+        <select id="ruta"></select>
       </div>
       <div>
         <label>Sección de control</label>
-        <select id="seccion" required></select>
+        <select id="seccion"></select>
       </div>
     </div>
 
@@ -147,21 +147,22 @@
 
     <div id="debug" class="muted" style="margin-top:.75rem"></div>
   </section>
+  
   <section class="card" style="margin-top:1rem">
-  <div class="stack" style="justify-content:space-between">
-    <h3 style="margin:0">Historial</h3>
-    <div class="stack">
-      <button id="btn-reload-logs">Actualizar</button>
-      <button id="btn-logout">Cerrar sesión</button>
+    <div class="stack" style="justify-content:space-between">
+      <h3 style="margin:0">Historial</h3>
+      <div class="stack">
+        <button id="btn-reload-logs">Actualizar</button>
+        <button id="btn-logout">Cerrar sesión</button>
+      </div>
     </div>
-  </div>
-  <div id="logs" class="muted" style="margin-top:.75rem">Sin datos</div>
-</section>
+    <div id="logs" class="muted" style="margin-top:.75rem">Sin datos</div>
+  </section>
 
 </section>
 
 <footer>
-  Login + Recordatorios locales listos. Luego podemos activar Web Push (FCM).
+  📍 Geolocalización activa - Los mensajes incluyen coordenadas GPS
 </footer>
 
 <script src="data.js"></script>

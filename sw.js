@@ -1,5 +1,5 @@
 // Cambia versión para forzar actualización
-const CACHE = "sheets-wa-pwa-v20";
+const CACHE = "sheets-wa-pwa-v24";
 const ASSETS = [
   "./",
   "./index.html",
