@@ -178,18 +178,21 @@ function updateGPSStatus(status, coords = null) {
   if (!gpsStatus) return;
   
   if (status === "getting") {
-    gpsStatus.textContent = "📍 Obteniendo ubicación...";
+    gpsStatus.textContent = "📍 Obteniendo...";
     gpsStatus.className = "pill";
   } else if (status === "success") {
-    gpsStatus.textContent = "📍 GPS obtenido";
+    gpsStatus.textContent = "📍 GPS activo";
     gpsStatus.className = "pill ok";
     if (coords && gpsCoords) {
-      gpsCoords.textContent = `Lat: ${coords.latitude.toFixed(6)}, Lon: ${coords.longitude.toFixed(6)}`;
+      const lat = coords.latitude.toFixed(6);
+      const lon = coords.longitude.toFixed(6);
+      const acc = coords.accuracy ? Math.round(coords.accuracy) : '?';
+      gpsCoords.innerHTML = `<a href="https://maps.google.com/?q=${lat},${lon}" target="_blank" style="color:inherit;text-decoration:underline">📍 Lat: ${lat}, Lon: ${lon}</a> (±${acc}m)`;
     }
   } else if (status === "error") {
     gpsStatus.textContent = "📍 GPS no disponible";
     gpsStatus.className = "pill bad";
-    if (gpsCoords) gpsCoords.textContent = "";
+    if (gpsCoords) gpsCoords.innerHTML = "<small>⚠️ Geolocalización no disponible. Necesitas HTTPS o estar en la app instalada.</small>";
   } else {
     gpsStatus.textContent = "📍 GPS desactivado";
     gpsStatus.className = "pill";
@@ -221,17 +224,17 @@ function requestLocation() {
         resolve(coords);
       },
       (error) => {
-        console.error("Error GPS:", error.message);
+        console.error("Error GPS:", error.message, "Code:", error.code);
         updateGPSStatus("error");
         state.currentLocation = null;
         
         let errorMsg = "Error obteniendo ubicación";
         switch(error.code) {
           case error.PERMISSION_DENIED:
-            errorMsg = "Permiso de ubicación denegado";
+            errorMsg = "Permiso de ubicación denegado. Ve a Configuración → Privacidad → Ubicación";
             break;
           case error.POSITION_UNAVAILABLE:
-            errorMsg = "Ubicación no disponible";
+            errorMsg = "Ubicación no disponible. Verifica que el GPS esté activado.";
             break;
           case error.TIMEOUT:
             errorMsg = "Tiempo agotado obteniendo ubicación";
@@ -241,17 +244,67 @@ function requestLocation() {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000 // Acepta ubicación de hasta 1 minuto atrás
+        timeout: 15000,
+        maximumAge: 30000 // Acepta ubicación de hasta 30 segundos atrás
       }
     );
   });
+}
+
+// Monitoreo continuo de GPS
+function startGPSWatch() {
+  if (!navigator.geolocation) {
+    console.warn("Geolocalización no soportada");
+    updateGPSStatus("error");
+    return;
+  }
+
+  // Detiene watcher anterior si existe
+  if (state.gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(state.gpsWatchId);
+  }
+
+  console.log("🔄 Iniciando monitoreo continuo de GPS...");
+  
+  state.gpsWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      const coords = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        timestamp: position.timestamp
+      };
+      state.currentLocation = coords;
+      updateGPSStatus("success", coords);
+      console.log("📍 GPS actualizado:", coords);
+    },
+    (error) => {
+      console.error("Error GPS watch:", error.message);
+      updateGPSStatus("error");
+      state.currentLocation = null;
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 10000 // Actualiza cada 10 segundos
+    }
+  );
+}
+
+function stopGPSWatch() {
+  if (state.gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = null;
+    console.log("⏹️ Monitoreo GPS detenido");
+  }
 }
 
 // Solicitar permisos al hacer login
 async function requestGPSPermission() {
   try {
     await requestLocation();
+    // Si tuvo éxito, inicia monitoreo continuo
+    startGPSWatch();
   } catch (e) {
     console.warn("No se pudo obtener ubicación inicial:", e.message);
   }
@@ -260,18 +313,38 @@ async function requestGPSPermission() {
 // ================== LOGIN ==================
 btnLogin?.addEventListener("click", async ()=>{
   saveCfg();
-  if (!state.cfg.gasUrl) { loginMsg.textContent = "Configura la GAS_URL primero."; return; }
+  
+  if (!state.online) {
+    loginMsg.textContent = "⚠️ Sin conexión. Necesitas internet para iniciar sesión la primera vez.";
+    loginMsg.style.color = "#ff8080";
+    return;
+  }
+  
+  if (!state.cfg.gasUrl) { 
+    loginMsg.textContent = "Configura la GAS_URL primero."; 
+    return; 
+  }
 
   const user = (loginUser.value || "").trim();
   const pin  = (loginPin.value  || "").trim();
-  if (!user || !pin) { loginMsg.textContent = "Usuario y PIN son obligatorios."; return; }
+  if (!user || !pin) { 
+    loginMsg.textContent = "Usuario y PIN son obligatorios."; 
+    return; 
+  }
+
+  loginMsg.textContent = "Conectando...";
+  loginMsg.style.color = "#6b7280";
 
   try {
     const urlLogin = buildUrl(state.cfg.gasUrl, { q: "login", user_id: user, pin });
     const resp = await fetch(urlLogin);
     const raw  = await resp.text();
     let data; try { data = JSON.parse(raw); } catch { throw new Error("Respuesta no JSON: " + raw.slice(0,200)); }
-    if (!data.ok) { loginMsg.textContent = data.error || "Error de aplicación"; return; }
+    if (!data.ok) { 
+      loginMsg.textContent = data.error || "Error de aplicación";
+      loginMsg.style.color = "#ff8080";
+      return; 
+    }
 
     state.auth = data.user; saveAuth();
     await initCatalogs();
@@ -281,7 +354,8 @@ btnLogin?.addEventListener("click", async ()=>{
     await loadLogs(50);
     showApp();
   } catch (e) {
-    loginMsg.textContent = "Error conectando con el servidor: " + String(e).slice(0,200);
+    loginMsg.textContent = "Error conectando: " + String(e).slice(0,200);
+    loginMsg.style.color = "#ff8080";
   }
 });
 
@@ -604,19 +678,37 @@ $("#btn-preview")?.addEventListener("click", ()=>{ applyPreview({ force:true });
 
 // ================== WhatsApp ==================
 $("#btn-wa")?.addEventListener("click", ()=>{
-  const url = "https://wa.me/?text=" + encodeURIComponent(mensaje.value || "");
+  let mensajeFinal = mensaje.value || "";
+  
+  // Agrega enlace de Google Maps si hay coordenadas
+  if (state.currentLocation) {
+    const lat = state.currentLocation.latitude.toFixed(6);
+    const lon = state.currentLocation.longitude.toFixed(6);
+    const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
+    
+    // Agrega el enlace al final del mensaje si no está ya
+    if (!mensajeFinal.includes(mapsUrl)) {
+      mensajeFinal += `\n\n📍 Ubicación: ${mapsUrl}`;
+    }
+  }
+  
+  const url = "https://wa.me/?text=" + encodeURIComponent(mensajeFinal);
   window.open(url, "_blank");
 });
 
 // ================== Guardado ==================
 $("#btn-guardar")?.addEventListener("click", async ()=>{
-  // Intenta obtener ubicación fresca antes de guardar
-  try {
-    await requestLocation();
-  } catch (e) {
-    console.warn("No se pudo actualizar ubicación:", e.message);
+  // Verifica si hay GPS disponible
+  if (!state.currentLocation) {
+    console.warn("⚠️ No hay coordenadas GPS disponibles al guardar");
+  } else {
+    console.log("✅ Guardando con GPS:", {
+      lat: state.currentLocation.latitude,
+      lon: state.currentLocation.longitude,
+      accuracy: state.currentLocation.accuracy
+    });
   }
-
+  
   let item_codigo = "", item_nombre = "";
   const raw = (itemInput.value || "").trim();
   const m = raw.match(/^\s*([^-\[]+?)\s*-\s*(.+)\s*$/);
@@ -636,12 +728,14 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     timestamp: Date.now(),
     msg_id: uuid(),
     usuario_id: state.auth?.user_id || "",
-    // << NUEVOS CAMPOS DE GPS
+    // << CAMPOS DE GPS (actualizados automáticamente)
     latitud: state.currentLocation?.latitude || null,
     longitud: state.currentLocation?.longitude || null,
     gps_accuracy: state.currentLocation?.accuracy || null,
     gps_timestamp: state.currentLocation?.timestamp || null
   };
+  
+  console.log("📦 Payload a enviar:", JSON.stringify(payload, null, 2));
 
   if (!state.cfg.gasUrl){
     enqueue(payload);
@@ -795,6 +889,7 @@ btnReloadLogs?.addEventListener("click", ()=> loadLogs(50));
 
 // Logout
 btnLogout?.addEventListener("click", ()=>{
+  stopGPSWatch(); // Detiene monitoreo GPS
   localStorage.removeItem(AUTH_KEY);
   state.auth = null;
   showLogin();
