@@ -62,6 +62,7 @@ const photoPreview = $("#photo-preview");
 const photoPreviewImg = $("#photo-preview-img");
 const btnTakePhoto = $("#btn-take-photo");
 const btnRemovePhoto = $("#btn-remove-photo");
+const uploadStatus = $("#upload-status");
 
 // ----- Historial / logout -----
 const logsContainer  = $("#logs");
@@ -812,62 +813,75 @@ $("#btn-wa")?.addEventListener("click", async ()=>{
     }
   }
 
-  // Si hay foto, procesamos diferente según la plataforma
-  if (state.currentPhoto) {
-    console.log('📸 Enviando con foto...');
+  // Si hay foto Y Share API disponible, usamos método híbrido
+  if (state.currentPhoto && navigator.share) {
+    console.log('📸 Intentando Share API con texto...');
     
-    // Intentamos Share API primero (móviles modernos)
-    if (navigator.share) {
-      try {
-        // Convierte base64 a blob
-        const blob = await fetch(state.currentPhoto).then(r => r.blob());
-        const file = new File([blob], 'foto-cacisa.jpg', { type: 'image/jpeg' });
+    try {
+      // Convierte base64 a blob
+      const blob = await fetch(state.currentPhoto).then(r => r.blob());
+      const file = new File([blob], 'foto-cacisa.jpg', { type: 'image/jpeg' });
+      
+      // Verificamos si puede compartir archivos
+      const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
+      
+      if (canShareFiles) {
+        console.log('✅ Share API disponible, intentando compartir...');
         
-        // Verificamos si puede compartir archivos
-        const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
+        // CLAVE: Usa 'text' en lugar de 'title' y separa bien los campos
+        await navigator.share({
+          text: mensajeFinal,  // El texto completo aquí
+          files: [file]
+        });
         
-        if (canShareFiles) {
-          // Intenta compartir texto + archivo
-          await navigator.share({
-            title: 'Reporte CACISA',
-            text: mensajeFinal,
-            files: [file]
-          });
-          
-          console.log('✅ Compartido vía Share API');
-          return;
-        }
-      } catch (e) {
-        console.warn('Share API falló o fue cancelado:', e.message);
-        // Continúa con método alternativo
+        console.log('✅ Compartido vía Share API');
+        return;
+      } else {
+        console.log('⚠️ Share API no puede compartir archivos en este dispositivo');
       }
+    } catch (e) {
+      // Si el usuario cancela, no es error
+      if (e.name === 'AbortError') {
+        console.log('ℹ️ Usuario canceló el share');
+        return;
+      }
+      console.warn('Share API falló:', e.message);
+      // Continúa con método alternativo
+    }
+  }
+
+  // Fallback: Subir a ImgBB (funciona siempre)
+  if (state.currentPhoto) {
+    console.log('📸 Usando método alternativo (ImgBB)...');
+    
+    if (uploadStatus) {
+      uploadStatus.style.display = 'block';
+      uploadStatus.textContent = '📤 Subiendo foto a la nube...';
     }
     
-    // Fallback: Subir imagen y enviar enlace en el mensaje
     console.log('📤 Subiendo foto a ImgBB...');
     const imgUrl = await uploadToImgBB(state.currentPhoto);
+    
+    if (uploadStatus) uploadStatus.style.display = 'none';
     
     if (imgUrl) {
       mensajeFinal += `\n\n📸 Foto: ${imgUrl}`;
       console.log('✅ Foto subida:', imgUrl);
     } else {
-      // Si falla la subida, avisa al usuario
-      const continuar = confirm('⚠️ No se pudo subir la foto automáticamente.\n\n¿Deseas enviar el mensaje sin la foto?\n\n(Puedes intentar de nuevo o enviar la foto manualmente después)');
-      
+      const continuar = confirm('⚠️ No se pudo subir la foto automáticamente.\n\n¿Deseas enviar el mensaje sin la foto?');
       if (!continuar) {
         console.log('❌ Usuario canceló el envío');
         return;
       }
-      
       mensajeFinal += `\n\n📸 [Foto no disponible - enviar manualmente]`;
     }
   }
   
-  // Abre WhatsApp con el mensaje (con o sin foto URL)
+  // Abre WhatsApp con el mensaje completo
   const url = "https://wa.me/?text=" + encodeURIComponent(mensajeFinal);
   window.open(url, "_blank");
   
-  console.log('✅ WhatsApp abierto con mensaje:', mensajeFinal.substring(0, 100) + '...');
+  console.log('✅ WhatsApp abierto');
 });
 
 // Sube imagen a ImgBB (servicio gratuito de hosting de imágenes)
@@ -928,6 +942,27 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
   if (m) { item_codigo = m[1].trim(); item_nombre = m[2].trim(); }
   else   { item_nombre = raw; }
 
+  // Si hay foto, súbela primero a ImgBB
+  let fotoUrl = null;
+  if (state.currentPhoto) {
+    if (uploadStatus) {
+      uploadStatus.style.display = 'block';
+      uploadStatus.textContent = '📤 Subiendo foto antes de guardar...';
+    }
+    
+    console.log('📤 Subiendo foto a ImgBB para guardar...');
+    fotoUrl = await uploadToImgBB(state.currentPhoto);
+    
+    if (uploadStatus) uploadStatus.style.display = 'none';
+    
+    if (!fotoUrl) {
+      const continuar = confirm('⚠️ No se pudo subir la foto.\n\n¿Deseas guardar el reporte sin foto?');
+      if (!continuar) return;
+    } else {
+      console.log('✅ Foto subida para Sheets:', fotoUrl);
+    }
+  }
+
   const payload = {
     type:"append_log",
     zona_id: zona.value || "",
@@ -946,8 +981,8 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     longitud: state.currentLocation?.longitude || null,
     gps_accuracy: state.currentLocation?.accuracy || null,
     gps_timestamp: state.currentLocation?.timestamp || null,
-    // FOTO (base64 comprimida o URL si la subimos)
-    foto: state.currentPhoto || null
+    // FOTO (solo URL, no base64)
+    foto: fotoUrl || null
   };
   
   console.log("📦 Payload a enviar:", JSON.stringify(payload, null, 2));
