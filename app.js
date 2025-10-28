@@ -279,6 +279,7 @@ function compressAndPreviewImage(file) {
       // Muestra vista previa
       if (photoPreviewImg) photoPreviewImg.src = base64;
       if (photoPreview) photoPreview.classList.remove('hide');
+      if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
       
       console.log('📸 Foto capturada:', {
         originalSize: (file.size / 1024).toFixed(2) + ' KB',
@@ -811,75 +812,99 @@ $("#btn-wa")?.addEventListener("click", async ()=>{
     }
   }
 
-  // Si hay foto, la enviamos de forma diferente
+  // Si hay foto, procesamos diferente según la plataforma
   if (state.currentPhoto) {
-    // WhatsApp Web API no soporta imágenes directamente desde base64
-    // Opciones:
-    // 1. Subir a un servicio (ImgBB, Imgur, Google Drive)
-    // 2. Usar compartir nativo si está disponible
+    console.log('📸 Enviando con foto...');
     
-    if (navigator.share && navigator.canShare) {
-      // Opción 1: API de compartir nativo (mejor para móviles)
+    // Intentamos Share API primero (móviles modernos)
+    if (navigator.share) {
       try {
         // Convierte base64 a blob
         const blob = await fetch(state.currentPhoto).then(r => r.blob());
-        const file = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
+        const file = new File([blob], 'foto-cacisa.jpg', { type: 'image/jpeg' });
         
-        await navigator.share({
-          text: mensajeFinal,
-          files: [file]
-        });
+        // Verificamos si puede compartir archivos
+        const canShareFiles = navigator.canShare && navigator.canShare({ files: [file] });
         
-        console.log('✅ Foto compartida vía share API');
-        return;
+        if (canShareFiles) {
+          // Intenta compartir texto + archivo
+          await navigator.share({
+            title: 'Reporte CACISA',
+            text: mensajeFinal,
+            files: [file]
+          });
+          
+          console.log('✅ Compartido vía Share API');
+          return;
+        }
       } catch (e) {
-        console.warn('Share API no disponible o cancelado:', e);
+        console.warn('Share API falló o fue cancelado:', e.message);
         // Continúa con método alternativo
       }
     }
     
-    // Opción 2: Subir a ImgBB (gratis, no requiere cuenta)
+    // Fallback: Subir imagen y enviar enlace en el mensaje
+    console.log('📤 Subiendo foto a ImgBB...');
     const imgUrl = await uploadToImgBB(state.currentPhoto);
     
     if (imgUrl) {
       mensajeFinal += `\n\n📸 Foto: ${imgUrl}`;
+      console.log('✅ Foto subida:', imgUrl);
     } else {
-      mensajeFinal += `\n\n📸 (Foto adjunta - no se pudo subir automáticamente)`;
+      // Si falla la subida, avisa al usuario
+      const continuar = confirm('⚠️ No se pudo subir la foto automáticamente.\n\n¿Deseas enviar el mensaje sin la foto?\n\n(Puedes intentar de nuevo o enviar la foto manualmente después)');
+      
+      if (!continuar) {
+        console.log('❌ Usuario canceló el envío');
+        return;
+      }
+      
+      mensajeFinal += `\n\n📸 [Foto no disponible - enviar manualmente]`;
     }
   }
   
+  // Abre WhatsApp con el mensaje (con o sin foto URL)
   const url = "https://wa.me/?text=" + encodeURIComponent(mensajeFinal);
   window.open(url, "_blank");
+  
+  console.log('✅ WhatsApp abierto con mensaje:', mensajeFinal.substring(0, 100) + '...');
 });
 
 // Sube imagen a ImgBB (servicio gratuito de hosting de imágenes)
 async function uploadToImgBB(base64Image) {
   try {
     // API Key pública de ImgBB (puedes crear tu propia cuenta gratis en imgbb.com)
-    const apiKey = '6d207e02198a847aa98d0a2a901485a5'; // Ejemplo - usa tu propia key
+    const apiKey = '6d207e02198a847aa98d0a2a901485a5';
     
     // Remueve el prefijo data:image/jpeg;base64,
     const base64Data = base64Image.split(',')[1];
     
     const formData = new FormData();
     formData.append('image', base64Data);
+    formData.append('expiration', 15552000); // 6 meses
+    
+    console.log('📤 Enviando a ImgBB...');
     
     const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
       method: 'POST',
       body: formData
     });
     
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
     const data = await response.json();
     
-    if (data.success) {
+    if (data.success && data.data && data.data.url) {
       console.log('✅ Imagen subida a ImgBB:', data.data.url);
       return data.data.url;
     } else {
-      console.error('❌ Error subiendo a ImgBB:', data);
+      console.error('❌ Respuesta inválida de ImgBB:', data);
       return null;
     }
   } catch (error) {
-    console.error('❌ Error subiendo imagen:', error);
+    console.error('❌ Error subiendo imagen a ImgBB:', error);
     return null;
   }
 }

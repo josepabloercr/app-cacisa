@@ -30,6 +30,8 @@
     .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     button { padding: .7rem 1rem; border-radius: .6rem; border: 1px solid #111827; background: transparent; cursor: pointer; }
     button.primary { background: #111827; color: white; }
+    button:hover { opacity: 0.8; }
+    button:active { transform: scale(0.98); }
     .muted { color: #6b7280; font-size: .9rem; }
     .stack { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     footer { margin-top: 2rem; color:#6b7280; font-size:.9rem; }
@@ -158,6 +160,10 @@
       <button id="btn-preview">Previsualizar</button>
       <button id="btn-wa" class="primary">Abrir WhatsApp</button>
       <button id="btn-guardar">Guardar en Sheets</button>
+    </div>
+    
+    <div id="upload-status" class="muted" style="margin-top:.5rem; display:none; color:#0ea5e9;">
+      📤 Subiendo foto...
     </div>
 
     <div id="debug" class="muted" style="margin-top:.75rem"></div>
