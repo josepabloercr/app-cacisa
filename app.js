@@ -57,6 +57,11 @@ const mensaje    = $("#mensaje");
 const debug      = $("#debug");
 const gpsStatus  = $("#gps-status");
 const gpsCoords  = $("#gps-coords");
+const photoInput = $("#photo-input");
+const photoPreview = $("#photo-preview");
+const photoPreviewImg = $("#photo-preview-img");
+const btnTakePhoto = $("#btn-take-photo");
+const btnRemovePhoto = $("#btn-remove-photo");
 
 // ----- Historial / logout -----
 const logsContainer  = $("#logs");
@@ -80,7 +85,8 @@ const state = {
   deferredPrompt: null,
   _cats: {},
   currentLocation: null,
-  gpsWatchId: null  // << ID del watcher de GPS continuo
+  gpsWatchId: null,
+  currentPhoto: null  // << NUEVA: foto capturada (base64 o blob URL)
 };
 
 // ================== Helpers ==================
@@ -198,11 +204,93 @@ loadCfg(); loadAuth(); loadOutbox();
 
 btnCfgSave?.addEventListener("click", () => { saveCfg(); toastMsg(loginMsg, "GAS_URL guardada ✅"); });
 
-// Hacer visibles para firebase-config.js
-window.state = state;
-window.buildUrl = buildUrl;
-window.saveAuth = saveAuth;
+// ================== CAPTURA DE FOTOS ==================
+// Maneja el cambio del input de foto (desde cámara o galería)
+photoInput?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
+  // Verifica que sea una imagen
+  if (!file.type.startsWith('image/')) {
+    alert('Por favor selecciona una imagen válida');
+    return;
+  }
+
+  // Comprime y muestra vista previa
+  compressAndPreviewImage(file);
+});
+
+// Abre la cámara directamente
+btnTakePhoto?.addEventListener("click", () => {
+  if (photoInput) {
+    photoInput.click();
+  }
+});
+
+// Elimina la foto
+btnRemovePhoto?.addEventListener("click", () => {
+  state.currentPhoto = null;
+  if (photoPreview) photoPreview.classList.add('hide');
+  if (photoInput) photoInput.value = '';
+  if (btnRemovePhoto) btnRemovePhoto.style.display = 'none';
+  console.log('📸 Foto eliminada');
+});
+
+// Comprime la imagen y muestra vista previa
+function compressAndPreviewImage(file) {
+  const reader = new FileReader();
+  
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      // Crea canvas para comprimir
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      
+      // Limita dimensiones máximas (para WhatsApp)
+      const MAX_WIDTH = 1920;
+      const MAX_HEIGHT = 1920;
+      
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Convierte a base64 (JPEG con 85% calidad)
+      const base64 = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // Guarda en estado
+      state.currentPhoto = base64;
+      
+      // Muestra vista previa
+      if (photoPreviewImg) photoPreviewImg.src = base64;
+      if (photoPreview) photoPreview.classList.remove('hide');
+      
+      console.log('📸 Foto capturada:', {
+        originalSize: (file.size / 1024).toFixed(2) + ' KB',
+        compressedSize: (base64.length / 1024).toFixed(2) + ' KB',
+        dimensions: `${width}x${height}`
+      });
+    };
+    img.src = e.target.result;
+  };
+  
+  reader.readAsDataURL(file);
+}
 
 // ================== GEOLOCALIZACIÓN ==================
 function updateGPSStatus(status, coords = null) {
@@ -709,7 +797,7 @@ function applyPreview(opts = { force:false }) {
 $("#btn-preview")?.addEventListener("click", ()=>{ applyPreview({ force:true }); });
 
 // ================== WhatsApp ==================
-$("#btn-wa")?.addEventListener("click", ()=>{
+$("#btn-wa")?.addEventListener("click", async ()=>{
   let mensajeFinal = mensaje.value || "";
   
   // Agrega enlace de Google Maps si hay coordenadas
@@ -718,15 +806,83 @@ $("#btn-wa")?.addEventListener("click", ()=>{
     const lon = state.currentLocation.longitude.toFixed(6);
     const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;
     
-    // Agrega el enlace al final del mensaje si no está ya
     if (!mensajeFinal.includes(mapsUrl)) {
       mensajeFinal += `\n\n📍 Ubicación: ${mapsUrl}`;
+    }
+  }
+
+  // Si hay foto, la enviamos de forma diferente
+  if (state.currentPhoto) {
+    // WhatsApp Web API no soporta imágenes directamente desde base64
+    // Opciones:
+    // 1. Subir a un servicio (ImgBB, Imgur, Google Drive)
+    // 2. Usar compartir nativo si está disponible
+    
+    if (navigator.share && navigator.canShare) {
+      // Opción 1: API de compartir nativo (mejor para móviles)
+      try {
+        // Convierte base64 a blob
+        const blob = await fetch(state.currentPhoto).then(r => r.blob());
+        const file = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
+        
+        await navigator.share({
+          text: mensajeFinal,
+          files: [file]
+        });
+        
+        console.log('✅ Foto compartida vía share API');
+        return;
+      } catch (e) {
+        console.warn('Share API no disponible o cancelado:', e);
+        // Continúa con método alternativo
+      }
+    }
+    
+    // Opción 2: Subir a ImgBB (gratis, no requiere cuenta)
+    const imgUrl = await uploadToImgBB(state.currentPhoto);
+    
+    if (imgUrl) {
+      mensajeFinal += `\n\n📸 Foto: ${imgUrl}`;
+    } else {
+      mensajeFinal += `\n\n📸 (Foto adjunta - no se pudo subir automáticamente)`;
     }
   }
   
   const url = "https://wa.me/?text=" + encodeURIComponent(mensajeFinal);
   window.open(url, "_blank");
 });
+
+// Sube imagen a ImgBB (servicio gratuito de hosting de imágenes)
+async function uploadToImgBB(base64Image) {
+  try {
+    // API Key pública de ImgBB (puedes crear tu propia cuenta gratis en imgbb.com)
+    const apiKey = '6d207e02198a847aa98d0a2a901485a5'; // Ejemplo - usa tu propia key
+    
+    // Remueve el prefijo data:image/jpeg;base64,
+    const base64Data = base64Image.split(',')[1];
+    
+    const formData = new FormData();
+    formData.append('image', base64Data);
+    
+    const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      console.log('✅ Imagen subida a ImgBB:', data.data.url);
+      return data.data.url;
+    } else {
+      console.error('❌ Error subiendo a ImgBB:', data);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Error subiendo imagen:', error);
+    return null;
+  }
+}
 
 // ================== Guardado ==================
 $("#btn-guardar")?.addEventListener("click", async ()=>{
@@ -760,11 +916,13 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     timestamp: Date.now(),
     msg_id: uuid(),
     usuario_id: state.auth?.user_id || "",
-    // << CAMPOS DE GPS (actualizados automáticamente)
+    // GPS
     latitud: state.currentLocation?.latitude || null,
     longitud: state.currentLocation?.longitude || null,
     gps_accuracy: state.currentLocation?.accuracy || null,
-    gps_timestamp: state.currentLocation?.timestamp || null
+    gps_timestamp: state.currentLocation?.timestamp || null,
+    // FOTO (base64 comprimida o URL si la subimos)
+    foto: state.currentPhoto || null
   };
   
   console.log("📦 Payload a enviar:", JSON.stringify(payload, null, 2));
@@ -979,35 +1137,6 @@ btnLogout?.addEventListener("click", ()=>{
   showLogin();
 });
 
-async function initializeFCM() {
-  const fcmLabel = document.querySelector('#fcm-status');
-  try {
-    // 1) Inicializa Firebase (usa firebase-config.js)
-    const ok = await window.firebaseApp.initialize();
-    if (!ok) {
-      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: no disponibles';
-      return;
-    }
-
-    // 2) Pide token
-    const token = await window.firebaseApp.requestToken();
-    if (token) {
-      // 3) Guarda el token en Google Sheets (USERS.device_token)
-      await window.firebaseApp.updateToken(token);
-      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: activas';
-    } else {
-      if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: permiso denegado';
-    }
-
-    // 4) Listener de mensajes en primer plano
-    window.firebaseApp.setupListeners();
-  } catch (err) {
-    console.error('FCM init error:', err);
-    if (fcmLabel) fcmLabel.textContent = '🔔 Notificaciones: error';
-  }
-}
-
-
 // ================== Service Worker ==================
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").then(() => {
@@ -1020,12 +1149,50 @@ document.addEventListener("visibilitychange", updateInstallButtonVisibility);
 window.addEventListener("load", updateInstallButtonVisibility);
 
 // ================== Bootstrap ==================
+async function initializeFCM() {
+  const fcmStatus = document.getElementById('fcm-status');
+  
+  if (!window.firebaseApp) {
+    if (fcmStatus) fcmStatus.textContent = "🔔 Notificaciones: Firebase no configurado";
+    console.warn('Firebase config no encontrado. Crea firebase-config.js con tus credenciales.');
+    return;
+  }
+
+  try {
+    const initialized = await window.firebaseApp.initialize();
+    
+    if (!initialized) {
+      if (fcmStatus) fcmStatus.textContent = "🔔 Notificaciones: No disponibles";
+      return;
+    }
+
+    // Configura listeners
+    window.firebaseApp.setupListeners();
+
+    // Solicita token FCM
+    const token = await window.firebaseApp.requestToken();
+    
+    if (token) {
+      // Guarda el token en Sheets
+      await window.firebaseApp.updateToken(token);
+      if (fcmStatus) fcmStatus.textContent = "🔔 Notificaciones Push: ✅ Activadas";
+      console.log('✅ FCM configurado correctamente');
+    } else {
+      if (fcmStatus) fcmStatus.textContent = "🔔 Notificaciones: Permisos denegados";
+    }
+  } catch (error) {
+    console.error('Error inicializando FCM:', error);
+    if (fcmStatus) fcmStatus.textContent = "🔔 Notificaciones: Error de configuración";
+  }
+}
+
 (async function boot(){
   if (state.cfg.gasUrl && state.auth) {
     await initCatalogs();
     hydrateProfileUI();
     scheduleLocalReminder();
-    await requestGPSPermission(); // << Solicita GPS al cargar
+    await requestGPSPermission();
+    await initializeFCM(); // << Inicializa FCM al cargar
     await loadLogs(50);
     showApp();
   } else {
