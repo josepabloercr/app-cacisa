@@ -57,12 +57,6 @@ const mensaje    = $("#mensaje");
 const debug      = $("#debug");
 const gpsStatus  = $("#gps-status");
 const gpsCoords  = $("#gps-coords");
-const photoInput = $("#photo-input");
-const photoPreview = $("#photo-preview");
-const photoPreviewImg = $("#photo-preview-img");
-const btnTakePhoto = $("#btn-take-photo");
-const btnRemovePhoto = $("#btn-remove-photo");
-const uploadStatus = $("#upload-status");
 
 // ----- Historial / logout -----
 const logsContainer  = $("#logs");
@@ -86,8 +80,7 @@ const state = {
   deferredPrompt: null,
   _cats: {},
   currentLocation: null,
-  gpsWatchId: null,
-  currentPhoto: null  // << NUEVA: foto capturada (base64 o blob URL)
+  gpsWatchId: null
 };
 
 // ================== Helpers ==================
@@ -204,95 +197,6 @@ function saveOutbox(){ localStorage.setItem(OUTBOX_KEY, JSON.stringify(state.out
 loadCfg(); loadAuth(); loadOutbox();
 
 btnCfgSave?.addEventListener("click", () => { saveCfg(); toastMsg(loginMsg, "GAS_URL guardada ✅"); });
-
-// ================== CAPTURA DE FOTOS ==================
-// Maneja el cambio del input de foto (desde cámara o galería)
-photoInput?.addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-
-  // Verifica que sea una imagen
-  if (!file.type.startsWith('image/')) {
-    alert('Por favor selecciona una imagen válida');
-    return;
-  }
-
-  // Comprime y muestra vista previa
-  compressAndPreviewImage(file);
-});
-
-// Abre la cámara directamente
-btnTakePhoto?.addEventListener("click", () => {
-  if (photoInput) {
-    photoInput.click();
-  }
-});
-
-// Elimina la foto
-btnRemovePhoto?.addEventListener("click", () => {
-  state.currentPhoto = null;
-  if (photoPreview) photoPreview.classList.add('hide');
-  if (photoInput) photoInput.value = '';
-  if (btnRemovePhoto) btnRemovePhoto.style.display = 'none';
-  console.log('📸 Foto eliminada');
-});
-
-// Comprime la imagen y muestra vista previa
-function compressAndPreviewImage(file) {
-  const reader = new FileReader();
-  
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = () => {
-      // Crea canvas para comprimir
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
-      
-      // Limita dimensiones máximas (para WhatsApp)
-      const MAX_WIDTH = 1920;
-      const MAX_HEIGHT = 1920;
-      
-      if (width > height) {
-        if (width > MAX_WIDTH) {
-          height *= MAX_WIDTH / width;
-          width = MAX_WIDTH;
-        }
-      } else {
-        if (height > MAX_HEIGHT) {
-          width *= MAX_HEIGHT / height;
-          height = MAX_HEIGHT;
-        }
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // Convierte a base64 (JPEG con 85% calidad)
-      const base64 = canvas.toDataURL('image/jpeg', 0.85);
-      
-      // Guarda en estado
-      state.currentPhoto = base64;
-      
-      // Muestra vista previa
-      if (photoPreviewImg) photoPreviewImg.src = base64;
-      if (photoPreview) photoPreview.classList.remove('hide');
-      if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
-      
-      console.log('📸 Foto capturada:', {
-        originalSize: (file.size / 1024).toFixed(2) + ' KB',
-        compressedSize: (base64.length / 1024).toFixed(2) + ' KB',
-        dimensions: `${width}x${height}`
-      });
-    };
-    img.src = e.target.result;
-  };
-  
-  reader.readAsDataURL(file);
-}
 
 // ================== GEOLOCALIZACIÓN ==================
 function updateGPSStatus(status, coords = null) {
@@ -925,43 +829,11 @@ async function uploadToImgBB(base64Image) {
 
 // ================== Guardado ==================
 $("#btn-guardar")?.addEventListener("click", async ()=>{
-  // Verifica si hay GPS disponible
-  if (!state.currentLocation) {
-    console.warn("⚠️ No hay coordenadas GPS disponibles al guardar");
-  } else {
-    console.log("✅ Guardando con GPS:", {
-      lat: state.currentLocation.latitude,
-      lon: state.currentLocation.longitude,
-      accuracy: state.currentLocation.accuracy
-    });
-  }
-  
   let item_codigo = "", item_nombre = "";
   const raw = (itemInput.value || "").trim();
   const m = raw.match(/^\s*([^-\[]+?)\s*-\s*(.+)\s*$/);
   if (m) { item_codigo = m[1].trim(); item_nombre = m[2].trim(); }
   else   { item_nombre = raw; }
-
-  // Si hay foto, súbela primero a ImgBB
-  let fotoUrl = null;
-  if (state.currentPhoto) {
-    if (uploadStatus) {
-      uploadStatus.style.display = 'block';
-      uploadStatus.textContent = '📤 Subiendo foto antes de guardar...';
-    }
-    
-    console.log('📤 Subiendo foto a ImgBB para guardar...');
-    fotoUrl = await uploadToImgBB(state.currentPhoto);
-    
-    if (uploadStatus) uploadStatus.style.display = 'none';
-    
-    if (!fotoUrl) {
-      const continuar = confirm('⚠️ No se pudo subir la foto.\n\n¿Deseas guardar el reporte sin foto?');
-      if (!continuar) return;
-    } else {
-      console.log('✅ Foto subida para Sheets:', fotoUrl);
-    }
-  }
 
   const payload = {
     type:"append_log",
@@ -976,16 +848,11 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
     timestamp: Date.now(),
     msg_id: uuid(),
     usuario_id: state.auth?.user_id || "",
-    // GPS
     latitud: state.currentLocation?.latitude || null,
     longitud: state.currentLocation?.longitude || null,
     gps_accuracy: state.currentLocation?.accuracy || null,
-    gps_timestamp: state.currentLocation?.timestamp || null,
-    // FOTO (solo URL, no base64)
-    foto: fotoUrl || null
+    gps_timestamp: state.currentLocation?.timestamp || null
   };
-  
-  console.log("📦 Payload a enviar:", JSON.stringify(payload, null, 2));
 
   if (!state.cfg.gasUrl){
     enqueue(payload);
