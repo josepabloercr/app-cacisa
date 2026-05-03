@@ -3,9 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#10b981" />
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#0ea5e9">
 
   <!-- iOS (no beforeinstallprompt) -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,38 +12,9 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 
   <title>Sheets → WhatsApp (PWA)</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    header { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
-    h1 { font-size: 1.25rem; margin: 0; }
-    .bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
-    .pill { padding: .2rem .6rem; border:1px solid #9ca3af; border-radius: 999px; font-size: .85rem; white-space:nowrap; }
-    .ok { color: #16a34a; border-color:#16a34a; }
-    .bad { color: #ef4444; border-color:#ef4444; }
-    label { font-weight: 600; display:block; margin: .75rem 0 .25rem; }
-    select, input[type=text], input[type=password], input[type=time], textarea {
-      width: 100%; padding: .6rem .7rem; border-radius: .5rem; border: 1px solid #9ca3af; background: transparent;
-    }
-    textarea { height: 120px; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    button { padding: .7rem 1rem; border-radius: .6rem; border: 1px solid #111827; background: transparent; cursor: pointer; }
-    button.primary { background: #111827; color: white; }
-    button:hover { opacity: 0.8; }
-    button:active { transform: scale(0.98); }
-    .muted { color: #6b7280; font-size: .9rem; }
-    .stack { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-    footer { margin-top: 2rem; color:#6b7280; font-size:.9rem; }
-    .card { border:1px solid #e5e7eb; border-radius: .8rem; padding: 1rem; }
-    .hide { display:none; }
-
-    select option { background: #ffffff; color: #111111; }
-    @media (prefers-color-scheme: dark) {
-      select { color: #e5e7eb; }
-      select option { background: #111827; color: #e5e7eb; }
-    }
-    select:invalid { color: #9ca3af; }
-  </style>
+  
+  <!-- Estilos Premium -->
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
