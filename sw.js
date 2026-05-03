@@ -1,23 +1,15 @@
 // Cambia versión para forzar actualización
-const CACHE = "sheets-wa-pwa-v26";
+const CACHE = "sheets-wa-pwa-v27";
 const ASSETS = [
   "./",
   "./index.html",
   "./app.js",
   "./data.js",
+  "./style.css",
+  "./firebase-config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
-  "./icons/icon-512.png",
-];
-
-/*const CACHE = "sheets-wa-pwa-v25";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./app.js",
-  "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", (e) => {
@@ -36,13 +28,13 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  if (req.method !== "GET") return;
+  // Solo cachea peticiones GET locales
+  if (req.method !== "GET" || !req.url.startsWith(self.location.origin)) return;
+  
   e.respondWith(
-    caches.match(req).then(cached =>
-      cached || fetch(req).then(res => {
-        // Opcional: cache dinámico
-        return res;
-      })
-    )
+    caches.match(req).then(cached => {
+      // Devuelve del caché si existe, sino lo busca en red
+      return cached || fetch(req);
+    })
   );
-});*/
+});
