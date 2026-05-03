@@ -32,11 +32,9 @@ const statusPill = $("#status");
 const btnInstall = $("#btn-install");
 
 // ----- Login -----
-const cfgInput   = $("#cfg-url");
 const loginUser  = $("#login-user");
 const loginPin   = $("#login-pin");
 const btnLogin   = $("#btn-login");
-const btnCfgSave = $("#cfg-save");
 const loginMsg   = $("#login-msg");
 
 // ----- Perfil / recordatorios -----
@@ -181,13 +179,10 @@ setOnline(navigator.onLine);
 
 // ================== Storage ==================
 function loadCfg(){
-  try { state.cfg = JSON.parse(localStorage.getItem(CFG_KEY) || "{}"); } catch {}
-  if (!state.cfg) state.cfg = {};
-  cfgInput.value = state.cfg.gasUrl || "";
+  state.cfg.gasUrl = "https://script.google.com/macros/s/AKfycbwHK_IZzL7uDck_wY_25uaKsokrtZxKgFlhYqPXimbd9BR5TPDmP4q7JlkhoaIf7imF/exec";
 }
 function saveCfg(){
-  state.cfg.gasUrl = cfgInput.value.trim();
-  localStorage.setItem(CFG_KEY, JSON.stringify(state.cfg));
+  // Eliminar guardado manual, la URL es automática
 }
 function loadAuth(){ try { state.auth = JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); } catch { state.auth = null; } }
 function saveAuth(){ localStorage.setItem(AUTH_KEY, JSON.stringify(state.auth)); }
@@ -196,7 +191,7 @@ function saveOutbox(){ localStorage.setItem(OUTBOX_KEY, JSON.stringify(state.out
 
 loadCfg(); loadAuth(); loadOutbox();
 
-btnCfgSave?.addEventListener("click", () => { saveCfg(); toastMsg(loginMsg, "GAS_URL guardada ✅"); });
+
 
 // ================== GEOLOCALIZACIÓN ==================
 function updateGPSStatus(status, coords = null) {
@@ -337,8 +332,6 @@ async function requestGPSPermission() {
 
 // ================== LOGIN ==================
 btnLogin?.addEventListener("click", async ()=>{
-  saveCfg();
-  
   if (!state.online) {
     loginMsg.textContent = "⚠️ Sin conexión. Necesitas internet para iniciar sesión la primera vez.";
     loginMsg.style.color = "#ff8080";
