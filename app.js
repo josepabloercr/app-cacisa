@@ -779,6 +779,9 @@ $("#btn-wa")?.addEventListener("click", async ()=>{
   window.open(url, "_blank");
   
   console.log('✅ WhatsApp abierto');
+  
+  // Guarda en Google Sheets automáticamente
+  $("#btn-guardar")?.click();
 });
 
 // Sube imagen a ImgBB (servicio gratuito de hosting de imágenes)
@@ -995,12 +998,12 @@ function sendNotification(title, body, options = {}) {
 function renderLogs(rows){
   if (!rows || !rows.length){ logsContainer.innerHTML = "Sin datos"; return; }
   const html = [
-    `<div style="overflow:auto"><table style="width:100%; border-collapse:collapse">`,
+    `<div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.875rem;">`,
     `<thead><tr>
-      <th style="text-align:left; border-bottom:1px solid #444; padding:.25rem .4rem;">Fecha</th>
-      <th style="text-align:left; border-bottom:1px solid #444; padding:.25rem .4rem;">Prefijo</th>
-      <th style="text-align:left; border-bottom:1px solid #444; padding:.25rem .4rem;">Mensaje</th>
-      <th style="text-align:left; border-bottom:1px solid #444; padding:.25rem .4rem;">Acción</th>
+      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Fecha</th>
+      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Prefijo</th>
+      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Mensaje</th>
+      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Acción</th>
     </tr></thead><tbody>`
   ];
   rows.forEach(r => {
@@ -1014,11 +1017,11 @@ function renderLogs(rows){
       r.kilometraje && `[${r.kilometraje}]`
     ].filter(Boolean).join(" ");
     html.push(`<tr>
-      <td style="padding:.25rem .4rem; vertical-align:top">${fecha}</td>
-      <td style="padding:.25rem .4rem; vertical-align:top; white-space:nowrap">${pref}</td>
-      <td style="padding:.25rem .4rem; vertical-align:top">${(r.mensaje || "").replace(/\n/g,"<br>")}</td>
-      <td style="padding:.25rem .4rem; vertical-align:top">
-        <button data-msg='${encodeURIComponent(r.mensaje || "")}' data-pref='${encodeURIComponent(pref)}' class="btn-use">Usar</button>
+      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top; white-space:nowrap">${fecha}</td>
+      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top; white-space:nowrap">${pref}</td>
+      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top">${(r.mensaje || "").replace(/\n/g,"<br>")}</td>
+      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top">
+        <button data-msg='${encodeURIComponent(r.mensaje || "")}' data-pref='${encodeURIComponent(pref)}' class="btn-use" style="padding:0.4rem 0.6rem; font-size:0.75rem;">Usar</button>
       </td>
     </tr>`);
   });
