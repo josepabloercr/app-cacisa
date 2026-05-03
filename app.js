@@ -37,12 +37,9 @@ const loginPin   = $("#login-pin");
 const btnLogin   = $("#btn-login");
 const loginMsg   = $("#login-msg");
 
-// ----- Perfil / recordatorios -----
+// ----- Perfil -----
 const txtUser    = $("#txt-user");
 const txtEstado  = $("#txt-estado");
-const chkSalida  = $("#chk-salida");
-const timeRem    = $("#time-rem");
-const btnSaveRem = $("#btn-save-rem");
 
 // ----- Controles de app -----
 const zona       = $("#zona");
@@ -382,61 +379,9 @@ function hydrateProfileUI(){
   if (!state.auth) return;
   txtUser.textContent = `${state.auth.nombre} (${state.auth.user_id})`;
   setEstadoPill(state.auth.estado || "activo");
-  chkSalida.checked = (state.auth.estado === "salida");
-  timeRem.value = state.auth.reminder_hhmm || "";
 }
 
-btnSaveRem?.addEventListener("click", async ()=>{
-  if (!state.auth || !state.cfg.gasUrl) return;
 
-  const newEstado = chkSalida.checked ? "salida" : "activo";
-  const reminder  = timeRem.value || "";
-
-  const payload = {
-    type: "update_user",
-    user_id: state.auth.user_id,
-    estado: newEstado,
-    reminder_hhmm: reminder,
-    recibir_notif: true
-  };
-
-  try {
-    const r = await fetch(state.cfg.gasUrl, {
-      method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify(payload)
-    });
-    const text = await r.text();
-    let data; try { data = JSON.parse(text); } catch { data = { ok:false, error:"non_json_response" }; }
-    if (!data.ok) throw new Error(data.error || "post_failed");
-
-    state.auth.estado = newEstado; state.auth.reminder_hhmm = reminder;
-    saveAuth(); hydrateProfileUI(); scheduleLocalReminder();
-    alert("Preferencias guardadas ✅");
-    return;
-  } catch (e) { console.warn("POST update_user falló, probando GET:", e); }
-
-  try {
-    const u = buildUrl(state.cfg.gasUrl, {
-      q: "update_user",
-      payload: JSON.stringify({
-        user_id: state.auth.user_id,
-        estado: newEstado,
-        reminder_hhmm: reminder,
-        recibir_notif: true
-      })
-    });
-    const r2 = await fetch(u, { method: "GET", cache:"no-store" });
-    const data2 = await r2.json();
-    if (!data2.ok) throw new Error(data2.error || "get_failed");
-
-    state.auth.estado = newEstado; state.auth.reminder_hhmm = reminder;
-    saveAuth(); hydrateProfileUI(); scheduleLocalReminder();
-    alert("Preferencias guardadas ✅ (vía respaldo)");
-  } catch (e2) {
-    console.error("Fallback GET update_user falló:", e2);
-    alert("Error guardando preferencias.");
-  }
-});
 
 // ================== Carga de catálogos HÍBRIDA ==================
 async function initCatalogs(){
