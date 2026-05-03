@@ -640,8 +640,8 @@ function applyPreview(opts = { force:false }) {
 }
 $("#btn-preview")?.addEventListener("click", ()=>{ applyPreview({ force:true }); });
 
-// ================== WhatsApp ==================
 $("#btn-wa")?.addEventListener("click", async ()=>{
+  applyPreview({ force:true });
   let mensajeFinal = mensaje.value || "";
   
   // Agrega enlace de Google Maps si hay coordenadas
@@ -725,8 +725,8 @@ $("#btn-wa")?.addEventListener("click", async ()=>{
   
   console.log('✅ WhatsApp abierto');
   
-  // Guarda en Google Sheets automáticamente
-  $("#btn-guardar")?.click();
+  // Guarda en Google Sheets automáticamente y en silencio
+  await guardarEnSheets();
 });
 
 // Sube imagen a ImgBB (servicio gratuito de hosting de imágenes)
@@ -769,7 +769,7 @@ async function uploadToImgBB(base64Image) {
 }
 
 // ================== Guardado ==================
-$("#btn-guardar")?.addEventListener("click", async ()=>{
+async function guardarEnSheets() {
   let item_codigo = "", item_nombre = "";
   const raw = (itemInput.value || "").trim();
   const m = raw.match(/^\s*([^-\[]+?)\s*-\s*(.+)\s*$/);
@@ -797,7 +797,7 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
 
   if (!state.cfg.gasUrl){
     enqueue(payload);
-    alert("Sin GAS_URL: guardado en cola local. Configura GAS_URL para sincronizar.");
+    console.log("Sin GAS_URL: guardado en cola local.");
     return;
   }
 
@@ -807,21 +807,21 @@ $("#btn-guardar")?.addEventListener("click", async ()=>{
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    alert("Guardado en Google Sheets ✅");
+    console.log("Guardado en Google Sheets ✅");
     await loadLogs(50);
   }catch(e){
     try{
       const u2 = buildUrl(state.cfg.gasUrl, { action:"append_log", payload: JSON.stringify(payload) });
       const res2 = await fetch(u2, { method:"GET", cache:"no-store" });
       if (!res2.ok) throw new Error("HTTP " + res2.status);
-      alert("Guardado en Google Sheets (vía respaldo) ✅");
+      console.log("Guardado en Google Sheets (vía respaldo) ✅");
       await loadLogs(50);
     }catch(e2){
       enqueue(payload);
-      alert("Error guardando. Queda en cola para reintentar.");
+      console.log("Error guardando. Queda en cola para reintentar.");
     }
   }
-});
+}
 
 function enqueue(item){ state.outbox.push({ id: uuid(), item, attempts: 0 }); saveOutbox(); }
 
