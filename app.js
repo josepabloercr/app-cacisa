@@ -997,15 +997,9 @@ function sendNotification(title, body, options = {}) {
 // ================== Historial ==================
 function renderLogs(rows){
   if (!rows || !rows.length){ logsContainer.innerHTML = "Sin datos"; return; }
-  const html = [
-    `<div style="overflow-x:auto"><table style="width:100%; border-collapse:collapse; font-size:0.875rem;">`,
-    `<thead><tr>
-      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Fecha</th>
-      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Prefijo</th>
-      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Mensaje</th>
-      <th style="text-align:left; border-bottom:2px solid var(--border-color); padding:.5rem .25rem; font-weight:600;">Acción</th>
-    </tr></thead><tbody>`
-  ];
+  
+  let html = `<div style="display:flex; flex-direction:column; gap:0.5rem;">`;
+  
   rows.forEach(r => {
     const fecha = new Date(r.timestamp).toLocaleString();
     const pref = [
@@ -1016,17 +1010,27 @@ function renderLogs(rows){
       r.item_nombre && `[${r.item_codigo ? r.item_codigo + " - " : ""}${r.item_nombre}]`,
       r.kilometraje && `[${r.kilometraje}]`
     ].filter(Boolean).join(" ");
-    html.push(`<tr>
-      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top; white-space:nowrap">${fecha}</td>
-      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top; white-space:nowrap">${pref}</td>
-      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top">${(r.mensaje || "").replace(/\n/g,"<br>")}</td>
-      <td style="padding:.5rem .25rem; border-bottom:1px solid var(--border-color); vertical-align:top">
-        <button data-msg='${encodeURIComponent(r.mensaje || "")}' data-pref='${encodeURIComponent(pref)}' class="btn-use" style="padding:0.4rem 0.6rem; font-size:0.75rem;">Usar</button>
-      </td>
-    </tr>`);
+    
+    // Limpiar saltos de línea repetidos excesivos para evitar "espacios grandes"
+    const msgLimpio = (r.mensaje || "").trim().replace(/\n{3,}/g, '\n\n').replace(/\n/g, "<br>");
+    
+    html += `
+    <div style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-color);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.4rem;">
+        <span style="font-size:0.75rem; color:var(--text-muted); font-weight:500;">${fecha}</span>
+        <button data-msg='${encodeURIComponent(r.mensaje || "")}' data-pref='${encodeURIComponent(pref)}' class="btn-use pill" style="margin:0; background:var(--primary-color); color:white; border:none; cursor:pointer;">Usar</button>
+      </div>
+      
+      <div style="font-size:0.8rem; font-weight:600; color:var(--primary-color); word-break:break-word; line-height:1.3; margin-bottom:0.3rem;">
+        ${pref}
+      </div>
+      
+      ${msgLimpio ? `<div style="font-size:0.85rem; color:var(--text-main); word-break:break-word; max-height:80px; overflow-y:auto; line-height:1.4;">${msgLimpio}</div>` : ''}
+    </div>`;
   });
-  html.push(`</tbody></table></div>`);
-  logsContainer.innerHTML = html.join("");
+  
+  html += `</div>`;
+  logsContainer.innerHTML = html;
 
   logsContainer.querySelectorAll(".btn-use").forEach(btn=>{
     btn.addEventListener("click", ()=>{
